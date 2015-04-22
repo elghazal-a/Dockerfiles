@@ -1,0 +1,10 @@
+[Unit]
+Description=nginx-confd
+After=docker.service
+Requires=docker.service
+
+[Service]
+EnvironmentFile=/etc/environment
+ExecStartPre=/usr/bin/docker pull quay.io/geniousphp/nginx-confd:latest
+ExecStart=/usr/bin/docker run --rm --name nginx -p 80:80 -e HOST_IP=52.17.153.170 quay.io/geniousphp/nginx-confd
+ExecStop=/usr/bin/docker kill nginx
