@@ -15,8 +15,8 @@ RUN LAYER=consul-template                        \
     && apk del ca-certificates \
     && rm -rf /tmp/* /var/cache/apk/*
 
-ADD haproxy.hcl /consul-template/config.d
-ADD haproxy.ctmpl /consul-template/templates
+ADD ./haproxy.hcl /consul-template/config.d
+ADD ./haproxy.ctmpl /consul-template/templates
 
 EXPOSE 80 443
 
