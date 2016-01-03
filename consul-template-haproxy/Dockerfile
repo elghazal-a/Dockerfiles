@@ -1,7 +1,7 @@
 FROM alpine
 MAINTAINER geniousphp
 
-ENV CONSUL_TEMPLATE_VERSION=0.12.0
+RUN apk --update add haproxy wget
 
 RUN LAYER=consul-template                        \
     && CONSUL_TEMPLATE_VERSION=0.12.0 \
@@ -15,10 +15,10 @@ RUN LAYER=consul-template                        \
     && apk del ca-certificates \
     && rm -rf /tmp/* /var/cache/apk/*
 
-ADD ./haproxy.hcl /consul-template/config.d
-ADD ./haproxy.ctmpl /consul-template/templates
+COPY config.hcl /consul-template/config.d
+
 
 EXPOSE 80 443
 
 ENTRYPOINT ["consul-template"]
-CMD ["-config=/consul-template/config.d/haproxy.hcl", "-consul=consul.service.consul:8500", "-dry"]
+CMD ["-config=/consul-template/config.d/config.hcl"]
