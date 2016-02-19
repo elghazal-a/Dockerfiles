@@ -16,7 +16,7 @@ RUN LAYER=consul-template                        \
     && apk del ca-certificates \
     && rm -rf /tmp/* /var/cache/apk/*
 
-COPY config.hcl /consul-template/config.d
+COPY config.hcl /consul-template/config.d/config.hcl
 
 EXPOSE 80 443
 
