@@ -1,37 +1,65 @@
+#This a comment to restart haproxy from consul-ui {{key "haproxy/restart"}}
 global
     log 127.0.0.1   local0
     log 127.0.0.1   local1 notice
     debug
     stats timeout 30s
-    maxconn {{with $maxconn:=key "service/haproxy/maxconn"}}{{$maxconn}}{{else}}4096{{end}}
+    maxconn 4096
 
 defaults
     log global
     option httplog
     option dontlognull
-    mode http{{range ls "service/haproxy/timeouts"}}
-    timeout {{.Key}} {{.Value}}{{else}}
-    timeout connect 5000
-    timeout client  50000
-    timeout server  50000{{end}}
+    mode http
+    maxconn 1024
+    retries 3 #retry when connection fails, not full request. Though all backend listed are healthy (thanks consul :)), the backend may be in restart state?
+    option redispatch #break persistent cookie with a broken backend and redistribute to a working server. 
+    option http-server-close #But keep-alive and pipelining on the client side still work. This saves server resources and force HAProxy re-evaluating conditional rules every time there is a new request 
+    option http-pretend-keepalive
+    option forwardfor
+    timeout queue   30s #When maxconn is reached, connections are left in a queue. 503 is returned after timeout
+    timeout connect 5s #allowed TCP connection establishment time
+    timeout client  30s #client inactivity
+    timeout http-request 10s  #client inactivity
+    timeout http-keep-alive 1s
+    timeout server  30s #allowed time to the server to process the request
+    timeout tunnel  1h #take precedence over client and server timeout when HAProxy works in tunnerl mode (websocket)
+    timeout http-keep-alive 2s
 
 frontend http-in
-    bind *:80{{range $i,$a:=services}}{{$path:=.Name}}{{range .Tags}}{{if eq . "frontend"}}
-    acl app{{$i}} path_beg -i /{{$path}}{{end}}{{end}}{{end}}
-    {{range $i,$a:=services}}{{range .Tags}}{{if eq . "rest"}}
-    use_backend srvs_app{{$i}} if app{{$i}}{{end}}{{end}}{{end}}
-
-{{range $i,$a:=services}}{{$path:=.Name}}{{range .Tags}}{{if eq . "rest"}}
-backend srvs_app{{$i}}
+    bind *:80{{range $i,$a:=services}}{{$path:=.Name}}{{range .Tags}}{{if eq . "io"}}
+    acl acl_io{{$i}} req.hdr(Host) -m beg -i {{$path}}.{{else if eq . "api"}}
+    acl acl_api{{$i}} path_beg -i /{{$path}}{{end}}{{end}}{{end}}
+    {{range $i,$a:=services}}{{range .Tags}}{{if eq . "io"}}
+    use_backend srvs_io{{$i}} if acl_io{{$i}}{{else if eq . "api"}}
+    use_backend srvs_api{{$i}} if acl_api{{$i}}{{end}}{{end}}{{end}}
+    default_backend srvs_public
+    
+{{range $i,$a:=services}}{{$path:=.Name}}{{range .Tags}}{{if eq . "api"}}
+backend srvs_api{{$i}}
     mode http
-    balance roundrobin
-    option forwardfor
-    option httpchk HEAD / HTTP/1.1\r\nHost:localhost
-    reqrep ^([^\ ]*\ /){{$path}}[/]?(.*)     \1\2{{range $c,$d:=service $a.Name}}
-    server host{{$c}} {{.Address}}:{{.Port}} check{{end}}{{end}}{{end}}{{end}}
+    reqrep ^([^\ ]*\ /){{$path}}/?(.*)     \1\2
+    balance roundrobin{{range $c,$d:=service $a.Name}}
+    server host{{$c}} {{.Address}}:{{.Port}} weight 1 maxconn 1024{{end}}{{else if eq . "io"}}
+backend srvs_io{{$i}}
+    mode http
+    timeout server 500s
+    no option redispatch
+    no option httpclose{{range $c,$d:=service $a.Name}}
+    use-server host{{$c}} if { urlp(io) -m str -i host{{$c}} }
+    server host{{$c}} {{.Address}}:{{.Port}} weight 1 maxconn 1024{{end}}{{end}}{{end}}{{end}}
 
-listen stats *:1936
+
+backend srvs_public
+    mode http
+    balance roundrobin{{range $c,$d:=service "frontend"}}
+    server host{{$c}} {{.Address}}:{{.Port}} weight 1 maxconn 1024{{end}}
+
+listen stats
+    bind *:1936
+    mode http
     stats enable
+    stats realm Haproxy\ Statistics
     stats uri /
     stats hide-version
-    stats auth someuser:password
+    stats auth a:a

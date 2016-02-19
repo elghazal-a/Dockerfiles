@@ -1,6 +1,7 @@
 consul = "consul.service.consul:8500"
 retry = "10s"
 log_level = "warn"
+reap = true
 
 
 template {
